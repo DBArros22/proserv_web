@@ -1,23 +1,44 @@
+// Configurações e Estado Inicial
 let usuarios = JSON.parse(localStorage.getItem('usuarios')) || [];
 let anuncios = JSON.parse(localStorage.getItem('anuncios')) || [];
 let sessao = JSON.parse(localStorage.getItem('sessao')) || null;
 
 const app = document.getElementById('app-container');
-
 const categoriasOpcoes = ["Pintor", "Eletricista", "Diarista", "Babá", "Cuidadora", "Pedreiro", "Bombeiro Hidráulico", "Costureira", "Jardineiro", "Montador de Móveis", "Outros"];
 const bairrosOpcoes = ["Centro", "Zona Sul", "Zona Norte", "Zona Oeste", "Barra", "Recreio", "Niterói", "São Gonçalo", "Outras Regiões"];
 
-const toB64 = file => new Promise((res, rej) => {
+// Solidificação do Banco de Dados (Garante que anúncios antigos tenham dono)
+function solidificarBanco() {
+    if (!sessao) return;
+    let mudou = false;
+    anuncios = anuncios.filter(a => {
+        if (!a.id) { mudou = true; return false; }
+        if (!a.userId) { a.userId = sessao.id; mudou = true; }
+        return true;
+    });
+    if (mudou) localStorage.setItem('anuncios', JSON.stringify(anuncios));
+}
+solidificarBanco();
+
+// Conversor de Imagem para Base64
+const toB64 = file => new Promise((res) => {
     const reader = new FileReader();
-    reader.readAsDataURL(file);
     reader.onload = () => res(reader.result);
-    reader.onerror = rej;
+    reader.onerror = () => res(null);
+    reader.readAsDataURL(file);
 });
 
+// Inicialização
 function init() {
     renderHeader();
     if (!sessao) renderAuth();
     else renderFeed();
+}
+
+// Busca dados atualizados do dono do anúncio
+function getDonoAnuncio(userId) {
+    const user = usuarios.find(u => u.id === userId);
+    return user ? user : { nome: "Usuário", foto: "" };
 }
 
 function renderHeader() {
@@ -28,329 +49,301 @@ function renderHeader() {
     }
     header.innerHTML = `
         <div class="nav-container">
-            <a onclick="renderFeed()" class="logo">Pro<span>Serv</span></a>
+            <a onclick="renderFeed()" class="logo" style="cursor:pointer">Pro<span>Serv</span></a>
             <div class="profile-wrapper">
                 <span style="font-weight:700">${sessao.nome.split(' ')[0]}</span>
-                <img src="${sessao.foto || 'https://via.placeholder.com/100'}">
+                <img src="${sessao.foto || 'https://via.placeholder.com/100'}" id="header-avatar">
                 <div class="dropdown-menu">
-                    <a onclick="renderPerfil()"><i class="fas fa-user"></i> Meu Perfil</a>
+                    <a onclick="renderPerfil()"><i class="fas fa-user-circle"></i> Meu Perfil</a>
                     <a onclick="renderMeusAnuncios()"><i class="fas fa-briefcase"></i> Meus Serviços</a>
-                    <a onclick="logout()" style="color:#ef4444"><i class="fas fa-power-off"></i> Sair da Conta</a>
+                    <a onclick="logout()" style="color:var(--danger)"><i class="fas fa-power-off"></i> Sair</a>
                 </div>
             </div>
         </div>`;
 }
 
+// --- TELAS DE FEED ---
 function renderFeed() {
     app.innerHTML = `
         <div class="container">
-            <div class="search-container">
-                <div class="input-group" style="margin-bottom:0">
-                    <i class="fas fa-search"></i>
-                    <input type="text" id="search-txt" placeholder="Buscar serviço ou profissional..." oninput="buscar()">
-                </div>
-                <div class="input-group" style="margin-bottom:0">
-                    <i class="fas fa-th-list"></i>
-                    <select id="search-cat" onchange="buscar()">
-                        <option value="">Todas as Categorias</option>
-                        ${categoriasOpcoes.map(c => `<option value="${c}">${c}</option>`).join('')}
-                    </select>
-                </div>
-                <div class="input-group" style="margin-bottom:0">
-                    <i class="fas fa-map-marker-alt"></i>
-                    <select id="search-loc" onchange="buscar()">
-                        <option value="">Todos os Bairros</option>
-                        ${bairrosOpcoes.map(b => `<option value="${b}">${b}</option>`).join('')}
-                    </select>
-                </div>
+            <div style="background:#fff; padding:20px; border-radius:15px; margin-bottom:30px; box-shadow:var(--shadow); display:grid; grid-template-columns: 1.5fr 1fr 1fr; gap:15px;">
+                <input type="text" id="search-txt" placeholder="O que você precisa?" style="padding:12px; border-radius:10px; border:1px solid #ddd" oninput="buscar()">
+                <select id="search-cat" style="padding:12px; border-radius:10px; border:1px solid #ddd" onchange="buscar()">
+                    <option value="">Todas Categorias</option>
+                    ${categoriasOpcoes.map(c => `<option value="${c}">${c}</option>`).join('')}
+                </select>
+                <select id="search-bai" style="padding:12px; border-radius:10px; border:1px solid #ddd" onchange="buscar()">
+                    <option value="">Todos os Bairros</option>
+                    ${bairrosOpcoes.map(b => `<option value="${b}">${b}</option>`).join('')}
+                </select>
             </div>
             <div id="services-grid" class="services-grid"></div>
         </div>`;
-
-    const todosAnuncios = [...anuncios].sort((a, b) => (b.dataAlt || 0) - (a.dataAlt || 0));
-    renderCards(todosAnuncios, 'feed');
+    buscar();
 }
 
 function buscar() {
-    const txt = document.getElementById('search-txt').value.toLowerCase();
-    const cat = document.getElementById('search-cat').value;
-    const loc = document.getElementById('search-loc').value;
-
-    const filtrados = anuncios.filter(a => {
-        const bateTxt = (a.titulo || "").toLowerCase().includes(txt) || (a.nomeUser || "").toLowerCase().includes(txt);
-        const bateCat = cat === "" || a.categoria === cat;
-        const bateLoc = loc === "" || a.bairro === loc;
-        return bateTxt && bateCat && bateLoc;
-    }).sort((a, b) => (b.dataAlt || 0) - (a.dataAlt || 0));
-
+    const txt = document.getElementById('search-txt')?.value.toLowerCase() || "";
+    const cat = document.getElementById('search-cat')?.value || "";
+    const bai = document.getElementById('search-bai')?.value || "";
+    const filtrados = anuncios.filter(a => (a.titulo.toLowerCase().includes(txt)) && (cat === "" || a.categoria === cat) && (bai === "" || a.bairro === bai)).sort((a,b) => b.id - a.id);
     renderCards(filtrados, 'feed');
+}
+
+function renderMeusAnuncios() {
+    const meusAnuncios = anuncios.filter(a => a.userId === sessao.id);
+    app.innerHTML = `
+        <div class="container">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:30px">
+                <h1 style="font-weight:800">Meus Serviços Postados</h1>
+                <button class="btn-primary" style="width:auto; padding:12px 25px" onclick="renderCriarAnuncio()">+ Novo Anúncio</button>
+            </div>
+            <div id="services-grid" class="services-grid"></div>
+        </div>`;
+    renderCards(meusAnuncios, 'gerenciar');
 }
 
 function renderCards(lista, modo) {
     const grid = document.getElementById('services-grid');
     if (!grid) return;
-
     if (lista.length === 0) {
-        grid.innerHTML = `
-            <div style="grid-column:1/-1; text-align:center; padding:100px 0; color:#94a3b8">
-                <i class="fas fa-search" style="font-size:3rem; display:block; margin-bottom:20px"></i>
-                <p style="font-size:1.1rem; font-weight:600">Nenhum serviço encontrado aqui.</p>
-            </div>`;
+        grid.innerHTML = `<p style="grid-column:1/-1; text-align:center; padding:40px; color:#94a3b8">Nenhum serviço encontrado.</p>`;
         return;
     }
-
-    grid.innerHTML = lista.map(a => `
-        <div class="service-card" onclick="${modo === 'feed' ? `renderDetalhes(${a.id})` : ''}">
-            <div class="card-cat">${a.categoria}</div>
-            <div class="card-gallery">
-                ${a.fotos && a.fotos.length > 0 ? a.fotos.slice(0, 3).map(f => `<img src="${f}">`).join('') : '<img src="https://via.placeholder.com/400x300?text=Sem+Imagem">'}
-            </div>
-            <div style="padding:22px">
-                <h3 style="font-size:1.1rem; font-weight:800; margin-bottom:10px; color:var(--text-main); height: 1.4em; overflow: hidden;">${a.titulo}</h3>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px">
-                    <span style="color:var(--brand); font-weight:800; font-size:1.3rem">R$ ${parseFloat(a.preco).toFixed(2)}</span>
-                    <span style="font-size:0.8rem; font-weight:700; color:var(--text-muted); background:#f1f5f9; padding:4px 10px; border-radius:8px">${a.bairro}</span>
+    grid.innerHTML = lista.map(a => {
+        const dono = getDonoAnuncio(a.userId);
+        return `
+        <div class="service-card">
+            <div onclick="${modo === 'feed' ? `renderDetalhes(${a.id})` : ''}" style="cursor:${modo === 'feed' ? 'pointer' : 'default'}">
+                <div class="card-gallery">${a.fotos && a.fotos.length > 0 ? a.fotos.slice(0,3).map(f => `<img src="${f}">`).join('') : '<img src="https://via.placeholder.com/400x300?text=Sem+Foto">'}</div>
+                <div style="padding:18px">
+                    <small style="color:var(--brand); font-weight:800; text-transform:uppercase">${a.categoria}</small>
+                    <h3 style="margin:5px 0; font-size:1.1rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${a.titulo}</h3>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px">
+                        <span style="font-weight:800; color:var(--brand)">R$ ${a.preco}</span>
+                        <span style="font-size:0.8rem; color:var(--text-muted)">${a.bairro}</span>
+                    </div>
                 </div>
-                ${modo === 'gerenciar' ? `
-                    <div style="display:flex; gap:10px; margin-top:10px">
-                        <button class="btn-outline" onclick="event.stopPropagation(); renderCriarAnuncio(${a.id})">Editar</button>
-                        <button class="btn-outline" style="color:#ef4444; border-color:#fee2e2" onclick="event.stopPropagation(); excluirAnuncio(${a.id})">Remover</button>
-                    </div>
-                ` : `
-                    <div style="display:flex; align-items:center; gap:8px">
-                        <img src="${a.userFoto || 'https://via.placeholder.com/100'}" style="width:24px; height:24px; border-radius:50%; object-fit:cover">
-                        <small style="color:var(--text-muted); font-weight:600">${a.nomeUser}</small>
-                    </div>
-                `}
             </div>
-        </div>`).join('');
+            ${modo === 'gerenciar' ? `<div style="padding:0 18px 18px 18px; display:flex; gap:10px"><button class="btn-outline" style="flex:1; padding:8px" onclick="renderCriarAnuncio(${a.id})">Editar</button><button class="btn-outline" style="flex:1; padding:8px; color:var(--danger)" onclick="excluirAnuncio(${a.id})">Excluir</button></div>` : ''}
+        </div>`}).join('');
 }
 
-function renderMeusAnuncios() {
+// --- TELA DETALHADA DO SERVIÇO (CORRIGIDA) ---
+function renderDetalhes(id) {
+    const a = anuncios.find(x => x.id === id);
+    const dono = getDonoAnuncio(a.userId);
+    window.scrollTo(0,0);
+
     app.innerHTML = `
-        <div class="container">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:40px; flex-wrap:wrap; gap:15px">
-                <h1 style="font-weight:800; font-size:1.8rem">Meus Serviços</h1>
-                <button class="btn-primary" style="width:auto" onclick="renderCriarAnuncio()">+ Postar Novo Anúncio</button>
+    <div class="container">
+        <button class="btn-outline" style="border:none; margin-bottom:15px; cursor:pointer" onclick="renderFeed()">← Voltar</button>
+        <div class="auth-card" style="max-width:100%; text-align:left">
+            <div class="auth-content">
+                <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:20px; margin-bottom:30px">
+                    <div style="display:flex; gap:15px; align-items:center">
+                        <img src="${dono.foto || 'https://via.placeholder.com/100'}" style="width:70px; height:70px; border-radius:50%; object-fit:cover; border: 2px solid #eee">
+                        <div>
+                            <h1 style="font-size:1.8rem; margin:0">${a.titulo}</h1>
+                            <p style="color:var(--text-muted); margin:5px 0">${dono.nome} • ${a.bairro}</p>
+                        </div>
+                    </div>
+
+                    <div style="text-align:right; min-width:180px">
+                        <h2 style="color:var(--brand); font-size:2.2rem; margin:0 0 20px 0">R$ ${a.preco}</h2>
+                        <div style="display:flex; flex-direction:column; gap:12px">
+                            <a href="https://wa.me/55${a.whatsapp.replace(/\D/g,'')}" target="_blank" class="btn-primary" style="background:#22c55e; border:none; display:flex; align-items:center; justify-content:center; gap:8px; padding:14px">
+                                <i class="fab fa-whatsapp"></i> WhatsApp
+                            </a>
+                            ${a.social ? `
+                                <a href="${a.social.startsWith('http') ? a.social : 'https://' + a.social}" target="_blank" class="btn-outline" style="display:flex; align-items:center; justify-content:center; gap:8px; padding:14px; background:#f8fafc">
+                                    <i class="fas fa-share-alt"></i> Redes Sociais
+                                </a>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:15px; margin-bottom:25px">
+                    ${a.fotos && a.fotos.length > 0 ? a.fotos.map(f => `
+                        <img src="${f}" style="width:100%; height:400px; object-fit:cover; border-radius:15px; box-shadow: var(--shadow)">
+                    `).join('') : ''}
+                </div>
+
+                <div style="background:#f8fafc; padding:25px; border-radius:15px; border:1px solid #e2e8f0">
+                    <h4 style="margin:0 0 15px 0; font-size:1.2rem; color:var(--text-main)">Descrição do Serviço</h4>
+                    <p style="white-space:pre-wrap; color:var(--text-muted); line-height:1.6; margin:0">${a.descricao || 'Sem descrição detalhada.'}</p>
+                </div>
             </div>
-            <div id="services-grid" class="services-grid"></div>
-        </div>`;
-    renderCards(anuncios.filter(a => a.userId === sessao.id).sort((a,b) => b.dataAlt - a.dataAlt), 'gerenciar');
+        </div>
+    </div>`;
 }
 
+// --- FORMULÁRIO DE ANÚNCIO (CORRIGIDO) ---
 function renderCriarAnuncio(editId = null) {
     const editA = editId ? anuncios.find(x => x.id === editId) : null;
     app.innerHTML = `
-        <div class="auth-wrapper" style="min-height: auto; padding: 40px 20px;">
-            <div class="auth-card" style="max-width: 650px;">
-                <div class="auth-content">
-                    <h2 style="margin-bottom:30px; font-weight:800; letter-spacing:-1px">${editId ? '📝 Editar Serviço' : '📢 Publicar Novo Serviço'}</h2>
-                    <form id="f-post">
-                        <div class="input-group">
-                            <i class="fas fa-tag"></i>
-                            <input type="text" id="a-tit" value="${editA?.titulo || ''}" required placeholder="O que você faz? (Título curto)">
-                        </div>
-
-                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px">
-                            <div class="input-group">
-                                <i class="fas fa-th-large"></i>
-                                <select id="a-cat" required>
-                                    <option value="">Categoria</option>
-                                    ${categoriasOpcoes.map(c => `<option value="${c}" ${editA?.categoria === c ? 'selected' : ''}>${c}</option>`).join('')}
-                                </select>
-                            </div>
-                            <div class="input-group">
-                                <i class="fas fa-map-marker-alt"></i>
-                                <select id="a-bai" required>
-                                    <option value="">Bairro</option>
-                                    ${bairrosOpcoes.map(b => `<option value="${b}" ${editA?.bairro === b ? 'selected' : ''}>${b}</option>`).join('')}
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="input-group">
-                            <i class="fas fa-dollar-sign"></i>
-                            <input type="number" id="a-pre" value="${editA?.preco || ''}" required placeholder="Preço Médio / Diária (R$)">
-                        </div>
-
-                        <div class="input-group">
-                            <i class="fas fa-align-left" style="top: 20px; transform: none;"></i>
-                            <textarea id="a-des" rows="4" placeholder="Conte mais sobre seu serviço...">${editA?.descricao || ''}</textarea>
-                        </div>
-
-                        <div class="input-group">
-                             <label class="premium-file-upload" style="margin-bottom:0">
-                                <i class="fas fa-images"></i> Fotos do Trabalho (Máx 4)
-                                <input type="file" id="a-fotos" multiple accept="image/*" class="hidden">
-                            </label>
-                        </div>
-
-                        <button type="submit" class="btn-primary" style="margin-top:10px">${editId ? 'Salvar Alterações' : 'Publicar Anúncio Agora'}</button>
-                        <button type="button" class="btn-outline" style="margin-top:10px; border:none" onclick="renderMeusAnuncios()">Cancelar</button>
-                    </form>
-                </div>
+    <div class="container" style="max-width:600px">
+        <div class="auth-card" style="margin-top:20px">
+            <div class="auth-content">
+                <h2 style="margin-bottom:20px">${editId ? 'Editar Anúncio' : 'Publicar Novo Serviço'}</h2>
+                <form id="f-post">
+                    <div class="input-group"><i class="fas fa-bullhorn"></i><input type="text" id="a-tit" value="${editA?.titulo || ''}" placeholder="Título (Ex: Pintor Profissional)" required></div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
+                        <div class="input-group"><i class="fas fa-list"></i><select id="a-cat" required>
+                            <option value="">Categoria</option>
+                            ${categoriasOpcoes.map(c => `<option value="${c}" ${editA?.categoria === c ? 'selected' : ''}>${c}</option>`).join('')}
+                        </select></div>
+                        <div class="input-group"><i class="fas fa-map-marker-alt"></i><select id="a-bai" required>
+                            <option value="">Bairro</option>
+                            ${bairrosOpcoes.map(b => `<option value="${b}" ${editA?.bairro === b ? 'selected' : ''}>${b}</option>`).join('')}
+                        </select></div>
+                    </div>
+                    <div class="input-group"><i class="fas fa-dollar-sign"></i><input type="number" id="a-pre" value="${editA?.preco || ''}" placeholder="Valor R$" required></div>
+                    <div class="input-group"><i class="fab fa-whatsapp"></i><input type="text" id="a-whats" value="${editA?.whatsapp || sessao.whatsapp || ''}" placeholder="WhatsApp" required></div>
+                    <div class="input-group"><i class="fas fa-link"></i><input type="text" id="a-social" value="${editA?.social || ''}" placeholder="Link do Instagram/Facebook"></div>
+                    <div class="input-group" style="padding-left:0"><textarea id="a-des" rows="4" placeholder="Descrição completa do serviço..." style="padding-left:15px; width:100%; border:none">${editA?.descricao || ''}</textarea></div>
+                    <input type="file" id="a-fotos" multiple accept="image/*" style="margin-bottom:20px; width:100%">
+                    <button type="submit" class="btn-primary" id="btn-submit-anuncio">${editId ? 'Salvar Alterações' : 'Publicar Agora'}</button>
+                    <button type="button" class="btn-outline" style="width:100%; margin-top:10px; border:none" onclick="renderMeusAnuncios()">Cancelar</button>
+                </form>
             </div>
-        </div>`;
+        </div>
+    </div>`;
 
     document.getElementById('f-post').onsubmit = async (e) => {
         e.preventDefault();
-        const files = Array.from(document.getElementById('a-fotos').files).slice(0,4);
-        let f64 = editA ? editA.fotos : [];
-        if(files.length > 0) f64 = await Promise.all(files.map(f => toB64(f)));
+        const btn = document.getElementById('btn-submit-anuncio');
+        btn.innerText = "Processando...";
+        btn.disabled = true;
 
-        const novoPost = {
-            id: editId || Date.now(),
-            dataAlt: Date.now(),
-            userId: sessao.id,
-            nomeUser: sessao.nome,
-            userFoto: sessao.foto,
-            whatsapp: sessao.whatsapp,
-            titulo: document.getElementById('a-tit').value,
-            categoria: document.getElementById('a-cat').value,
-            preco: document.getElementById('a-pre').value,
-            bairro: document.getElementById('a-bai').value,
-            descricao: document.getElementById('a-des').value,
-            fotos: f64,
-            reviews: editA ? editA.reviews : []
-        };
+        const fFotos = document.getElementById('a-fotos');
+        let fotos = editA ? editA.fotos : [];
+        if (fFotos.files.length > 0) fotos = await Promise.all(Array.from(fFotos.files).slice(0, 4).map(f => toB64(f)));
 
-        if(editId) {
-            const idx = anuncios.findIndex(x => x.id === editId);
-            anuncios[idx] = novoPost;
-        } else {
-            anuncios.push(novoPost);
-        }
+        const obj = { id: editId || Date.now(), userId: sessao.id, titulo: document.getElementById('a-tit').value, categoria: document.getElementById('a-cat').value, preco: document.getElementById('a-pre').value, bairro: document.getElementById('a-bai').value, whatsapp: document.getElementById('a-whats').value, social: document.getElementById('a-social').value, descricao: document.getElementById('a-des').value, fotos };
+
+        if (editId) anuncios[anuncios.findIndex(a => a.id === editId)] = obj;
+        else anuncios.push(obj);
 
         localStorage.setItem('anuncios', JSON.stringify(anuncios));
-        renderFeed();
+        alert("✅ Serviço salvo com sucesso!");
+        renderMeusAnuncios();
     };
 }
 
-function renderDetalhes(id) {
-    const a = anuncios.find(x => x.id === id);
-    window.scrollTo(0,0);
+// --- PERFIL (CORRIGIDO) ---
+function renderPerfil() {
     app.innerHTML = `
-        <div class="container">
-            <button class="btn-outline" style="width:auto; margin-bottom:20px; border:none" onclick="renderFeed()">← Voltar</button>
-            <div class="auth-card" style="max-width: 100%; border-radius: 32px">
-                <div style="padding:clamp(20px, 5vw, 45px)">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:40px; flex-wrap:wrap; gap:25px">
-                        <div style="display:flex; gap:20px; align-items:center">
-                            <img src="${a.userFoto || 'https://via.placeholder.com/100'}" style="width:80px; height:80px; border-radius:50%; object-fit:cover; border:3px solid var(--brand-light)">
-                            <div>
-                                <span class="card-cat" style="position:static; padding:4px 12px">${a.categoria}</span>
-                                <h1 style="font-size:clamp(1.5rem, 4vw, 2.2rem); font-weight:800; margin-top:8px; letter-spacing:-1px">${a.titulo}</h1>
-                                <p style="color:var(--text-muted); font-weight:600">${a.nomeUser} • <i class="fas fa-map-marker-alt"></i> ${a.bairro}</p>
-                            </div>
-                        </div>
-                        <div style="background:var(--brand-light); padding:20px; border-radius:24px; text-align:center; flex: 1; min-width: 200px">
-                             <small style="font-weight:800; color:var(--brand); text-transform:uppercase; font-size:0.7rem">Preço Médio</small>
-                             <h2 style="color:var(--brand); font-size:2rem; font-weight:800">R$ ${parseFloat(a.preco).toFixed(2)}</h2>
-                             <a href="https://wa.me/55${a.whatsapp.replace(/\D/g,'')}" target="_blank" class="btn-primary" style="display:block; text-decoration:none; margin-top:15px; background:#22c55e"><i class="fab fa-whatsapp"></i> Chamar Agora</a>
-                        </div>
-                    </div>
-
-                    <h3 style="margin-bottom:20px; font-weight:800">Galeria</h3>
-                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:15px; margin-bottom:40px">
-                        ${a.fotos && a.fotos.length > 0 ? a.fotos.map(f => `<img src="${f}" style="width:100%; height:250px; object-fit:cover; border-radius:20px">`).join('') : '<p>Sem fotos.</p>'}
-                    </div>
-
-                    <h3 style="margin-bottom:15px; font-weight:800">Sobre</h3>
-                    <p style="white-space:pre-wrap; color:var(--text-muted); font-size:1.1rem; line-height:1.7;">${a.descricao}</p>
+    <div class="auth-wrapper">
+        <div class="auth-card" style="text-align:center">
+            <div class="auth-content">
+                <h2 style="margin-bottom:20px">Meu Perfil</h2>
+                <div style="position:relative; display:inline-block; margin-bottom:20px">
+                    <img id="p-preview" src="${sessao.foto || 'https://via.placeholder.com/150'}" style="width:140px; height:140px; border-radius:50%; object-fit:cover; border:4px solid var(--brand)">
+                    <label for="p-foto" style="position:absolute; bottom:5px; right:5px; background:var(--brand); color:#fff; width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer"><i class="fas fa-camera"></i></label>
+                    <input type="file" id="p-foto" style="display:none" accept="image/*">
                 </div>
+                <div class="input-group"><i class="fas fa-user"></i><input type="text" id="p-nome" value="${sessao.nome}"></div>
+                <button class="btn-primary" id="btn-save-profile" onclick="salvarPerfil()">Salvar Alterações</button>
+                <button class="btn-outline" style="width:100%; margin-top:10px; border:none" onclick="renderFeed()">Voltar</button>
             </div>
-        </div>`;
+        </div>
+    </div>`;
+    document.getElementById('p-foto').onchange = async (e) => {
+        const file = e.target.files[0];
+        if (file) document.getElementById('p-preview').src = await toB64(file);
+    };
 }
 
-function excluirAnuncio(id) { if(confirm("Remover serviço?")) { anuncios = anuncios.filter(a => a.id !== id); localStorage.setItem('anuncios', JSON.stringify(anuncios)); renderMeusAnuncios(); } }
-function logout() { localStorage.removeItem('sessao'); location.reload(); }
+async function salvarPerfil() {
+    const inputNome = document.getElementById('p-nome').value;
+    const novaFoto = document.getElementById('p-preview').src;
+    if (!inputNome) return alert("Nome obrigatório!");
 
-function toggleAuth(m) {
-    document.getElementById('form-login').classList.toggle('hidden', m === 'cadastro');
-    document.getElementById('form-cadastro').classList.toggle('hidden', m === 'login');
-    document.getElementById('btn-tab-login').classList.toggle('active', m === 'login');
-    document.getElementById('btn-tab-cadastro').classList.toggle('active', m === 'cadastro');
+    const uIdx = usuarios.findIndex(u => u.id === sessao.id);
+    if (uIdx !== -1) {
+        usuarios[uIdx].nome = inputNome;
+        usuarios[uIdx].foto = novaFoto;
+    }
+    sessao.nome = inputNome;
+    sessao.foto = novaFoto;
+    localStorage.setItem('usuarios', JSON.stringify(usuarios));
+    localStorage.setItem('sessao', JSON.stringify(sessao));
+    alert("✨ Perfil atualizado com sucesso!");
+    window.location.reload();
 }
 
+// --- AUTENTICAÇÃO ---
 function renderAuth() {
     app.innerHTML = `
-        <div class="auth-wrapper">
-            <div class="auth-card">
-                <div class="auth-tabs">
-                    <button onclick="toggleAuth('login')" id="btn-tab-login" class="active">Entrar</button>
-                    <button onclick="toggleAuth('cadastro')" id="btn-tab-cadastro">Cadastrar</button>
-                </div>
-                <div class="auth-content">
-                    <form id="form-login">
-                        <div class="input-group">
-                            <i class="fas fa-envelope"></i>
-                            <input type="email" id="l-email" placeholder="E-mail" required>
-                        </div>
-                        <div class="input-group">
-                            <i class="fas fa-lock"></i>
-                            <input type="password" id="l-senha" placeholder="Senha" required>
-                        </div>
-                        <button type="submit" class="btn-primary">Acessar Plataforma</button>
-                    </form>
-                    <form id="form-cadastro" class="hidden">
-                        <div class="input-group">
-                            <i class="fas fa-user"></i>
-                            <input type="text" id="c-nome" placeholder="Nome Completo" required>
-                        </div>
-                        <div class="input-group">
-                            <i class="fas fa-envelope"></i>
-                            <input type="email" id="c-email" placeholder="E-mail" required>
-                        </div>
-                        <div class="input-group">
-                            <i class="fas fa-phone"></i>
-                            <input type="text" id="c-tel" placeholder="WhatsApp" required>
-                        </div>
-                        <div class="input-group">
-                            <label class="premium-file-upload" style="margin-bottom:0">
-                                <i class="fas fa-camera"></i> Foto de Perfil
-                                <input type="file" id="c-foto" accept="image/*" class="hidden">
-                            </label>
-                        </div>
-                        <div class="input-group">
-                            <i class="fas fa-key"></i>
-                            <input type="password" id="c-senha" placeholder="Crie uma Senha" required>
-                        </div>
-                        <button type="submit" class="btn-primary">Criar Conta Premium</button>
-                    </form>
-                </div>
+    <div class="auth-wrapper">
+        <div class="auth-card">
+            <div style="display:flex; border-bottom:1px solid #eee">
+                <button onclick="toggleTab('l')" id="t-l" style="flex:1; padding:20px; border:none; background:#fff; font-weight:800; color:var(--brand)">Entrar</button>
+                <button onclick="toggleTab('c')" id="t-c" style="flex:1; padding:20px; border:none; background:none; font-weight:800; color:#94a3b8">Cadastrar</button>
             </div>
-        </div>`;
+            <div class="auth-content">
+                <form id="f-login">
+                    <div class="input-group"><i class="fas fa-envelope"></i><input type="email" id="l-email" placeholder="E-mail" required></div>
+                    <div class="input-group"><i class="fas fa-lock"></i><input type="password" id="l-pass" placeholder="Senha" required></div>
+                    <button type="submit" class="btn-primary">Entrar</button>
+                </form>
+                <form id="f-cad" class="hidden">
+                    <div style="text-align:center; margin-bottom:15px">
+                        <img id="c-preview" src="https://via.placeholder.com/100" style="width:80px; height:80px; border-radius:50%; object-fit:cover; border:2px solid var(--brand)">
+                        <label for="c-foto" style="display:block; font-size:0.8rem; color:var(--brand); cursor:pointer; margin-top:5px">Foto de Perfil</label>
+                        <input type="file" id="c-foto" style="display:none" accept="image/*">
+                    </div>
+                    <div class="input-group"><i class="fas fa-user"></i><input type="text" id="c-nome" placeholder="Nome Completo" required></div>
+                    <div class="input-group"><i class="fas fa-envelope"></i><input type="email" id="c-email" placeholder="E-mail" required></div>
+                    <div class="input-group"><i class="fab fa-whatsapp"></i><input type="text" id="c-tel" placeholder="WhatsApp" required></div>
+                    <div class="input-group"><i class="fas fa-lock"></i><input type="password" id="c-pass" placeholder="Senha" required></div>
+                    <div class="input-group"><i class="fas fa-check-circle"></i><input type="password" id="c-pass2" placeholder="Confirmar Senha" required></div>
+                    <button type="submit" class="btn-primary">Criar Conta</button>
+                </form>
+            </div>
+        </div>
+    </div>`;
 
-    document.getElementById('form-login').onsubmit = (e) => {
-        e.preventDefault();
-        const u = usuarios.find(x => x.email === document.getElementById('l-email').value && x.senha === document.getElementById('l-senha').value);
-        if(u) { localStorage.setItem('sessao', JSON.stringify(u)); location.reload(); } else alert("E-mail ou senha incorretos.");
+    document.getElementById('c-foto').onchange = async (e) => {
+        const f = e.target.files[0];
+        if(f) document.getElementById('c-preview').src = await toB64(f);
     };
-    document.getElementById('form-cadastro').onsubmit = async (e) => {
+
+    document.getElementById('f-login').onsubmit = (e) => {
         e.preventDefault();
-        const f = document.getElementById('c-foto').files[0];
-        const b = f ? await toB64(f) : "";
-        const novoUser = { id: Date.now(), nome: document.getElementById('c-nome').value, email: document.getElementById('c-email').value, whatsapp: document.getElementById('c-tel').value, foto: b, senha: document.getElementById('c-senha').value };
-        usuarios.push(novoUser);
+        const u = usuarios.find(x => x.email === document.getElementById('l-email').value && x.senha === document.getElementById('l-pass').value);
+        if(u) { localStorage.setItem('sessao', JSON.stringify(u)); location.reload(); } 
+        else alert("Credenciais incorretas!");
+    };
+
+    document.getElementById('f-cad').onsubmit = (e) => {
+        e.preventDefault();
+        if(document.getElementById('c-pass').value !== document.getElementById('c-pass2').value) return alert("Senhas não coincidem!");
+        const novo = { id: Date.now(), nome: document.getElementById('c-nome').value, email: document.getElementById('c-email').value, whatsapp: document.getElementById('c-tel').value, senha: document.getElementById('c-pass').value, foto: document.getElementById('c-preview').src.includes('placeholder') ? "" : document.getElementById('c-preview').src };
+        usuarios.push(novo);
         localStorage.setItem('usuarios', JSON.stringify(usuarios));
-        localStorage.setItem('sessao', JSON.stringify(novoUser));
+        localStorage.setItem('sessao', JSON.stringify(novo));
         location.reload();
     };
 }
 
-function renderPerfil() {
-    app.innerHTML = `
-        <div class="auth-wrapper">
-            <div class="auth-card" style="text-align:center">
-                <div class="auth-content">
-                    <img src="${sessao.foto || 'https://via.placeholder.com/150'}" style="width:120px; height:120px; border-radius:50%; object-fit:cover; border:4px solid var(--brand-light); margin-bottom:20px">
-                    <h2 style="font-weight:800">${sessao.nome}</h2>
-                    <p style="color:var(--text-muted); margin-bottom:30px">${sessao.email}</p>
-                    <button class="btn-primary" onclick="renderFeed()">Explorar Serviços</button>
-                    <button class="btn-outline" style="margin-top:10px; border:none" onclick="logout()">Sair da Conta</button>
-                </div>
-            </div>
-        </div>`;
+function excluirAnuncio(id) {
+    if (confirm("Deseja realmente excluir este anúncio?")) {
+        anuncios = anuncios.filter(a => a.id !== id);
+        localStorage.setItem('anuncios', JSON.stringify(anuncios));
+        renderMeusAnuncios();
+    }
 }
+
+function toggleTab(t) {
+    document.getElementById('f-login').classList.toggle('hidden', t === 'c');
+    document.getElementById('f-cad').classList.toggle('hidden', t === 'l');
+    document.getElementById('t-l').style.color = t === 'l' ? 'var(--brand)' : '#94a3b8';
+    document.getElementById('t-c').style.color = t === 'c' ? 'var(--brand)' : '#94a3b8';
+}
+
+function logout() { localStorage.removeItem('sessao'); location.reload(); }
 
 init();
