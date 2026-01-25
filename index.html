@@ -11,35 +11,6 @@
 <body>
     <header id="main-header"></header>
     <main id="app-container"></main>
-
-    <div id="tpl-auth" class="hidden">
-        <div class="auth-container">
-            <div class="auth-card">
-                <div class="auth-tabs">
-                    <button onclick="toggleAuth('login')" id="btn-tab-login" class="active">Entrar</button>
-                    <button onclick="toggleAuth('cadastro')" id="btn-tab-cadastro">Cadastrar</button>
-                </div>
-                <div class="auth-content">
-                    <form id="form-login">
-                        <div class="input-group"><i class="fas fa-envelope"></i><input type="email" id="l-email" placeholder="E-mail" required></div>
-                        <div class="input-group"><i class="fas fa-lock"></i><input type="password" id="l-senha" placeholder="Senha" required></div>
-                        <button type="submit" class="btn-primary">Acessar Conta</button>
-                    </form>
-                    <form id="form-cadastro" class="hidden">
-                        <div class="input-group"><i class="fas fa-user"></i><input type="text" id="c-nome" placeholder="Nome Completo" required></div>
-                        <div class="input-group"><i class="fas fa-envelope"></i><input type="email" id="c-email" placeholder="E-mail" required></div>
-                        <div class="input-group"><i class="fas fa-phone"></i><input type="text" id="c-tel" placeholder="WhatsApp" required></div>
-                        <label class="premium-file-upload">
-                            <i class="fas fa-camera"></i> Foto de Perfil
-                            <input type="file" id="c-foto" accept="image/*" class="hidden">
-                        </label>
-                        <div class="input-group"><i class="fas fa-key"></i><input type="password" id="c-senha" placeholder="Crie uma Senha" required></div>
-                        <button type="submit" class="btn-primary">Criar Conta Premium</button>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
     <script src="script.js"></script>
 </body>
 </html>
